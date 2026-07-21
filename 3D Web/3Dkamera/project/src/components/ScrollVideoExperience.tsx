@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 // ============================================================================
 const VIDEO_SRC = '/kamera-hero.mp4';
 const DOCK_IMAGE_SRC = '/camera-front.png';
-const MESIN_IMAGE_SRC = '/mesin-terbuka.png'; // taruh di public/ dengan nama ini
+const MESIN_IMAGE_SRC = '/mesin_terbuka.png';
 
 export const VIDEO_BG = '#000000';
 
@@ -63,23 +63,6 @@ const HUD_SPECS: { n: string; label: string; x: string; y: string; side: 'left' 
   { n: '23', label: 'Speaker',                     x: '62.0%', y: '68.4%', side: 'right' },
   { n: '24', label: 'Memory Card Slot',            x: '59.3%', y: '63.3%', side: 'right' },
   { n: '25', label: 'Battery Door',                x: '57.1%', y: '73.3%', side: 'right' },
-];
-
-// ============================================================================
-// MESIN TERBUKA LABELS (exploded view — x/y is % of that image)
-// Adjust coordinates once you can preview against the actual image
-// ============================================================================
-const MESIN_SPECS: { n: string; label: string; x: string; y: string; side: 'left' | 'right' }[] = [
-  { n: 'M01', label: 'Image Sensor',           x: '48%', y: '32%', side: 'left'  },
-  { n: 'M02', label: 'Shutter Mechanism',      x: '52%', y: '38%', side: 'right' },
-  { n: 'M03', label: 'Mirror Box',             x: '44%', y: '44%', side: 'left'  },
-  { n: 'M04', label: 'Main PCB',               x: '55%', y: '50%', side: 'right' },
-  { n: 'M05', label: 'Battery Compartment',    x: '57%', y: '62%', side: 'right' },
-  { n: 'M06', label: 'Viewfinder Prism',       x: '45%', y: '22%', side: 'left'  },
-  { n: 'M07', label: 'AF Module',              x: '50%', y: '55%', side: 'left'  },
-  { n: 'M08', label: 'Image Processor',        x: '53%', y: '42%', side: 'right' },
-  { n: 'M09', label: 'Cooling System',         x: '60%', y: '35%', side: 'right' },
-  { n: 'M10', label: 'Lens Mount Ring',        x: '46%', y: '60%', side: 'left'  },
 ];
 
 // Dock rect: align camera-front.png to the video's last frame
@@ -243,7 +226,7 @@ export default function ScrollVideoExperience({ onScroll }: Props) {
         {/* ── MESIN TERBUKA OVERLAY ── */}
         {mesinOpacity > 0.01 && rect.width > 0 && (
           <div
-            className="pointer-events-none absolute inset-0 z-25 flex items-center justify-center"
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
             style={{ opacity: mesinOpacity }}
           >
             <div className="relative" style={{ width: rect.width, height: rect.height }}>
@@ -252,45 +235,7 @@ export default function ScrollVideoExperience({ onScroll }: Props) {
                 alt="Exploded view"
                 className="absolute inset-0 h-full w-full object-contain"
               />
-              {/* Mesin labels */}
-              {MESIN_SPECS.map((s) => {
-                const px = (parseFloat(s.x) / 100) * rect.width;
-                const py = (parseFloat(s.y) / 100) * rect.height;
-                return (
-                  <div
-                    key={s.n}
-                    className="absolute flex items-center gap-2"
-                    style={{
-                      left: px,
-                      top: py,
-                      transform: `translate(${s.side === 'right' ? '-100%' : '0'}, -50%)`,
-                    }}
-                  >
-                    {s.side === 'right' && (
-                      <>
-                        <span className="glass whitespace-nowrap rounded-lg px-3 py-1.5 shadow-glass">
-                          <span className="mr-1.5 font-display text-[9px] tracking-[0.3em] text-cyber">{s.n}</span>
-                          <span className="font-display text-[11px] font-medium text-white/90">{s.label}</span>
-                        </span>
-                        <div className="h-px w-6 bg-gradient-to-r from-cyber/60 to-transparent" />
-                      </>
-                    )}
-                    <div className="relative shrink-0">
-                      <div className="absolute -inset-1.5 rounded-full border border-cyber/30 animate-pulseRing" />
-                      <div className="h-2 w-2 rounded-full bg-cyber shadow-glow-cyan" />
-                    </div>
-                    {s.side === 'left' && (
-                      <>
-                        <div className="h-px w-6 bg-gradient-to-l from-cyber/60 to-transparent" />
-                        <span className="glass whitespace-nowrap rounded-lg px-3 py-1.5 shadow-glass">
-                          <span className="mr-1.5 font-display text-[9px] tracking-[0.3em] text-cyber">{s.n}</span>
-                          <span className="font-display text-[11px] font-medium text-white/90">{s.label}</span>
-                        </span>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+
               {/* Mesin heading */}
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-center">
                 <span className="font-display text-[10px] tracking-[0.4em] text-cyber/70">
