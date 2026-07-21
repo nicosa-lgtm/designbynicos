@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 
-const CAMERA_SRC = '/camera-front.png';
-
 const LEFT_COPY = [
   {
     eyebrow: 'FULL-FRAME MASTERY',
@@ -64,18 +62,17 @@ function CopyBlock({
 
 export default function MarketingSection() {
   const sectionRef  = useRef<HTMLDivElement | null>(null);
-  const [scrollY, setScrollY]   = useState(0);
+  const videoRef    = useRef<HTMLVideoElement | null>(null);
+  const [scrollY, setScrollY]     = useState(0);
   const [sectionTop, setSectionTop] = useState(0);
 
   useEffect(() => {
     const el = sectionRef.current;
     if (!el) return;
-    const updateTop = () => {
-      setSectionTop(el.getBoundingClientRect().top + window.scrollY);
-    };
-    updateTop();
-    window.addEventListener('resize', updateTop);
-    return () => window.removeEventListener('resize', updateTop);
+    const update = () => setSectionTop(el.getBoundingClientRect().top + window.scrollY);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
   }, []);
 
   useEffect(() => {
@@ -84,15 +81,21 @@ export default function MarketingSection() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // How far into this section we've scrolled (0 = just entered, 1 = exited)
   const sectionH = typeof window !== 'undefined' ? window.innerHeight * 2 : 800;
   const rawProgress = sectionTop > 0 ? (scrollY - sectionTop + window.innerHeight) / (sectionH + window.innerHeight) : 0;
   const progress = Math.max(0, Math.min(1, rawProgress));
 
-  // Camera: enters from top, moves down, shrinks
-  const cameraY   = 5 + progress * 55;   // vh — from 5% to 60% of viewport
-  const cameraScale = 1 - progress * 0.45; // 1.0 → 0.55
-  const cameraOpacity = progress < 0.85 ? 1 : 1 - (progress - 0.85) / 0.15;
+  // Camera enters from top-center, moves down into the copy text, shrinks
+  const cameraY     = 2 + progress * 75;            // vh: 2% → 77% (deep into text)
+  const cameraScale = 1 - progress * 0.5;           // 1.0 → 0.5
+  const cameraOpacity = progress < 0.88 ? 1 : 1 - (progress - 0.88) / 0.12;
+
+  // Pause video when in view
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+  }, []);
 
   return (
     <section
@@ -102,49 +105,45 @@ export default function MarketingSection() {
     >
       {/* Radial glow behind camera */}
       <div
-        className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full blur-3xl"
+        className="pointer-events-none absolute left-1/2 rounded-full blur-3xl"
         style={{
           top: `${cameraY}vh`,
-          width: '40vw',
-          height: '40vw',
+          width: '42vw',
+          height: '42vw',
           background: 'radial-gradient(circle, rgba(212,255,63,0.07) 0%, transparent 70%)',
           transform: `translateX(-50%) scale(${cameraScale})`,
         }}
       />
 
-      {/* ── CAMERA IMAGE — enters from top, shrinks as you scroll ── */}
+      {/* Camera video — sticky, moves down into copy */}
       <div
-        className="pointer-events-none sticky top-0 z-10 flex h-screen w-full items-start justify-center"
+        className="pointer-events-none sticky top-0 z-10 h-screen w-full"
         style={{ opacity: cameraOpacity }}
       >
-        <img
-          src={CAMERA_SRC}
-          alt="AURA CINE Series X"
+        <video
+          ref={videoRef}
+          src="/kamera-hero.mp4"
           className="absolute object-contain"
           style={{
-            width: `${40 * cameraScale}vw`,
-            maxWidth: '520px',
+            width: `${42 * cameraScale}vw`,
+            maxWidth: '540px',
             top: `${cameraY}vh`,
             left: '50%',
-            transform: `translateX(-50%)`,
+            transform: 'translateX(-50%)',
             filter: 'drop-shadow(0 40px 80px rgba(212,255,63,0.12))',
           }}
+          playsInline muted preload="auto"
         />
       </div>
 
-      {/* ── COPY BLOCKS — pinned in a 2-column layout ── */}
+      {/* Copy blocks */}
       <div className="relative z-20 mx-auto grid max-w-7xl grid-cols-1 gap-32 px-6 pt-32 pb-40 sm:px-10 lg:grid-cols-[1fr_340px_1fr] lg:gap-16 lg:px-16">
-        {/* LEFT column */}
         <div className="flex flex-col justify-around gap-36 lg:gap-48">
           {LEFT_COPY.map((c) => (
             <CopyBlock key={c.eyebrow} {...c} align="left" />
           ))}
         </div>
-
-        {/* CENTER — spacer for camera */}
         <div className="hidden lg:block" />
-
-        {/* RIGHT column */}
         <div className="flex flex-col justify-around gap-36 lg:gap-48">
           {RIGHT_COPY.map((c) => (
             <CopyBlock key={c.eyebrow} {...c} align="right" />
@@ -152,7 +151,6 @@ export default function MarketingSection() {
         </div>
       </div>
 
-      {/* Bottom gradient fade into next section */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-b from-transparent to-ink-950" />
     </section>
   );
