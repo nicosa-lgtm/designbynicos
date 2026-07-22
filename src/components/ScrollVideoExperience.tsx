@@ -1,86 +1,89 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
-const VIDEO_SRC = '/kamera-hero.mp4';
+const VIDEO_SRC  = '/kamera-hero.mp4';
+const LABEL_IMG  = '/image-removebg-preview.png';
 export const VIDEO_BG = '#000000';
 
 const VIDEO_DURATION = 10;
-const VIDEO_ASPECT = 16 / 9;
+const T_PAUSE        = 3.5;
 
-// Scroll phases (fraction of total progress)
-const P_HERO_END        = 0.06;  // hero text visible
-const P_PLAY_END        = 0.45;  // video plays 0 → T_PAUSE
-const P_LABELS_OUT      = 0.70;  // labels hold then fade out
-const P_PLAY2_END       = 0.95;  // video continues T_PAUSE → end
-
-const T_PAUSE = 3.5;             // seconds where video freezes during labels
+// Scroll phases
+const P_HERO_END   = 0.06;
+const P_PLAY_END   = 0.42;
+const P_LABELS_OUT = 0.70;
+const P_PLAY2_END  = 0.95;
 
 export const SECTION_VH = 500;
 
-const HUD_SPECS: { n: string; label: string; x: string; y: string; side: 'left' | 'right' }[] = [
-  { n: '01', label: 'Mode Dial',             x: '38.9%', y: '24.4%', side: 'left'  },
-  { n: '02', label: 'Hot Shoe Mount',        x: '51.6%', y: '15.9%', side: 'left'  },
-  { n: '03', label: 'Shutter Button',        x: '45.3%', y: '28.1%', side: 'right' },
-  { n: '04', label: 'Rear Command Dial',     x: '61.3%', y: '33.0%', side: 'right' },
-  { n: '05', label: 'Grip',                  x: '64.6%', y: '62.5%', side: 'right' },
-  { n: '06', label: 'Viewfinder',            x: '35.8%', y: '33.5%', side: 'left'  },
-  { n: '07', label: 'Built-in Flash',        x: '53.8%', y: '11.2%', side: 'left'  },
-  { n: '08', label: 'Top LCD Display',       x: '41.9%', y: '16.5%', side: 'left'  },
-  { n: '09', label: 'Exposure Comp. Dial',   x: '55.6%', y: '23.4%', side: 'right' },
-  { n: '10', label: 'Front Command Dial',    x: '58.3%', y: '32.7%', side: 'right' },
-  { n: '11', label: 'Strap Eyelet',          x: '62.7%', y: '37.4%', side: 'right' },
-  { n: '12', label: 'AF Assist Beam',        x: '43.7%', y: '36.8%', side: 'left'  },
-  { n: '13', label: 'Function Button',       x: '34.8%', y: '40.6%', side: 'left'  },
-  { n: '14', label: 'Lens Release',          x: '44.7%', y: '46.7%', side: 'left'  },
-  { n: '15', label: 'Focus Ring',            x: '34.0%', y: '53.3%', side: 'left'  },
-  { n: '16', label: 'Zoom Ring',             x: '33.9%', y: '59.1%', side: 'left'  },
-  { n: '17', label: 'Lens',                  x: '32.8%', y: '66.3%', side: 'left'  },
-  { n: '18', label: 'Filter Thread',         x: '35.6%', y: '71.7%', side: 'left'  },
-  { n: '19', label: 'Microphone Input',      x: '65.7%', y: '48.6%', side: 'right' },
-  { n: '20', label: 'Headphone Output',      x: '65.7%', y: '54.2%', side: 'right' },
-  { n: '21', label: 'USB-C Port',            x: '65.6%', y: '58.4%', side: 'right' },
-  { n: '22', label: 'HDMI Port',             x: '64.6%', y: '66.5%', side: 'right' },
-  { n: '23', label: 'Speaker',               x: '62.0%', y: '68.4%', side: 'right' },
-  { n: '24', label: 'Memory Card Slot',      x: '59.3%', y: '63.3%', side: 'right' },
-  { n: '25', label: 'Battery Door',          x: '57.1%', y: '73.3%', side: 'right' },
+// ─── Front-facing camera label map ───────────────────────────────────────────
+// dotX/dotY: position on the camera image (% of image bounding box)
+// textY:     explicit vertical position for the label text (% of viewport)
+//            to prevent overlap between labels on the same side
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The camera image is displayed at ~48vw wide, centered.
+// On a 16:9 viewport the image occupies roughly:
+//   x: 26% – 74% of viewport width
+//   y: 12% – 86% of viewport height  (assuming ~1.1:1 aspect ratio image)
+
+const IMG_VX = 26;   // image left edge % of viewport w
+const IMG_VW = 48;   // image width     % of viewport w
+const IMG_VY = 12;   // image top edge  % of viewport h
+const IMG_VH = 74;   // image height    % of viewport h
+
+interface LabelSpec {
+  n: string;
+  label: string;
+  dotX: number;   // % of image width
+  dotY: number;   // % of image height
+  textY: number;  // % of viewport height — explicit to avoid stacking
+  side: 'left' | 'right';
+}
+
+// 12 labels: 6 per side, well spread vertically, text placed outside camera body
+const LABELS: LabelSpec[] = [
+  // ── LEFT side (text anchored at left edge of screen) ──
+  { n:'01', label:'Mode Dial',        dotX:22, dotY:21, textY:22, side:'left'  },
+  { n:'02', label:'Top LCD Display',  dotX:35, dotY:13, textY:13, side:'left'  },
+  { n:'03', label:'Lens Release',     dotX:38, dotY:46, textY:43, side:'left'  },
+  { n:'04', label:'Focus Ring',       dotX:21, dotY:57, textY:55, side:'left'  },
+  { n:'05', label:'Lens',             dotX:30, dotY:67, textY:66, side:'left'  },
+  { n:'06', label:'Filter Thread',    dotX:25, dotY:78, textY:78, side:'left'  },
+  // ── RIGHT side (text anchored at right edge of screen) ──
+  { n:'07', label:'Hot Shoe Mount',   dotX:54, dotY: 7, textY: 8, side:'right' },
+  { n:'08', label:'Shutter Button',   dotX:76, dotY:24, textY:21, side:'right' },
+  { n:'09', label:'Exp. Comp. Dial',  dotX:82, dotY:17, textY:14, side:'right' },
+  { n:'10', label:'Grip',             dotX:87, dotY:55, textY:55, side:'right' },
+  { n:'11', label:'USB-C Port',       dotX:85, dotY:48, textY:45, side:'right' },
+  { n:'12', label:'Battery Door',     dotX:67, dotY:84, textY:80, side:'right' },
 ];
+
+// Convert label dot coords (% of image) → % of viewport
+function dotVP(dotX: number, dotY: number) {
+  return {
+    vx: IMG_VX + (dotX / 100) * IMG_VW,
+    vy: IMG_VY + (dotY / 100) * IMG_VH,
+  };
+}
+
+// Text anchor positions in viewport %
+const TEXT_LEFT_X  = 1;   // left labels: text right edge at ~22% (leaves 21% for text)
+const TEXT_RIGHT_X = 99;  // right labels: text left edge at ~78%
+const LINE_END_LEFT  = 23; // where line ends on left side (just before text column)
+const LINE_END_RIGHT = 77; // where line ends on right side
 
 function clamp(v: number, lo: number, hi: number) { return Math.min(hi, Math.max(lo, v)); }
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 function smoothstep(t: number) { const c = clamp(t, 0, 1); return c * c * (3 - 2 * c); }
 
-function useVideoRect(containerRef: React.RefObject<HTMLElement | null>) {
-  const [size, setSize] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      setSize({ w: width, h: height });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [containerRef]);
-  return useMemo(() => {
-    const { w, h } = size;
-    if (!w || !h) return { left: 0, top: 0, width: 0, height: 0 };
-    const containerAspect = w / h;
-    let width: number, height: number;
-    if (containerAspect > VIDEO_ASPECT) { height = h; width = h * VIDEO_ASPECT; }
-    else { width = w; height = w / VIDEO_ASPECT; }
-    return { left: (w - width) / 2, top: (h - height) / 2, width, height };
-  }, [size]);
-}
-
 export default function ScrollVideoExperience() {
-  const videoRef   = useRef<HTMLVideoElement | null>(null);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const stickyRef  = useRef<HTMLDivElement | null>(null);
+  const videoRef    = useRef<HTMLVideoElement | null>(null);
+  const wrapperRef  = useRef<HTMLDivElement | null>(null);
   const [progress, setProgress]     = useState(0);
   const [videoReady, setVideoReady] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const rafRef      = useRef<number | null>(null);
   const lastSeekRef = useRef(0);
-  const rect = useVideoRect(stickyRef as React.RefObject<HTMLElement | null>);
 
   useEffect(() => {
     const update = () => {
@@ -88,26 +91,17 @@ export default function ScrollVideoExperience() {
       const video   = videoRef.current;
       if (!wrapper || !video) { rafRef.current = requestAnimationFrame(update); return; }
 
-      const box   = wrapper.getBoundingClientRect();
-      const total = box.height - window.innerHeight;
-      const scrolled = clamp(-box.top, 0, total);
-      const p = total > 0 ? scrolled / total : 0;
+      const box    = wrapper.getBoundingClientRect();
+      const total  = box.height - window.innerHeight;
+      const p      = total > 0 ? clamp(-box.top / total, 0, 1) : 0;
       setProgress(p);
 
-      // Video seek target
       let target: number;
-      if (p < P_HERO_END) {
-        target = 0;
-      } else if (p < P_PLAY_END) {
-        target = lerp(0, T_PAUSE, (p - P_HERO_END) / (P_PLAY_END - P_HERO_END));
-      } else if (p < P_LABELS_OUT) {
-        target = T_PAUSE; // frozen during labels
-      } else if (p < P_PLAY2_END) {
-        const t2 = VIDEO_DURATION - 0.05;
-        target = lerp(T_PAUSE, t2, (p - P_LABELS_OUT) / (P_PLAY2_END - P_LABELS_OUT));
-      } else {
-        target = VIDEO_DURATION - 0.05;
-      }
+      if      (p < P_HERO_END)   target = 0;
+      else if (p < P_PLAY_END)   target = lerp(0, T_PAUSE, (p - P_HERO_END) / (P_PLAY_END - P_HERO_END));
+      else if (p < P_LABELS_OUT) target = T_PAUSE;
+      else if (p < P_PLAY2_END)  target = lerp(T_PAUSE, VIDEO_DURATION - 0.05, (p - P_LABELS_OUT) / (P_PLAY2_END - P_LABELS_OUT));
+      else                       target = VIDEO_DURATION - 0.05;
 
       if (video.readyState >= 1 && video.duration && !Number.isNaN(video.duration)) {
         const t = clamp(target, 0, video.duration);
@@ -130,14 +124,14 @@ export default function ScrollVideoExperience() {
   }, []);
   const handleError = useCallback(() => setVideoError(true), []);
 
-  // Derived opacities
-  const introOpacity = smoothstep(clamp(1 - progress / (P_HERO_END * 0.9), 0, 1));
-
-  const labelsIn  = smoothstep(clamp((progress - P_PLAY_END)    / 0.04, 0, 1));
-  const labelsOut = smoothstep(clamp((P_LABELS_OUT - progress)  / 0.04, 0, 1));
+  const introOpacity  = smoothstep(clamp(1 - progress / (P_HERO_END * 0.9), 0, 1));
+  const labelsIn      = smoothstep(clamp((progress - P_PLAY_END)   / 0.05, 0, 1));
+  const labelsOut     = smoothstep(clamp((P_LABELS_OUT - progress) / 0.05, 0, 1));
   const labelsOpacity = Math.min(labelsIn, labelsOut);
-
-  const scrollHintOpacity = clamp(1 - progress * 12, 0, 1);
+  // video fades out while label image fades in
+  const videoOpacity  = 1 - smoothstep(clamp((progress - (P_PLAY_END - 0.04)) / 0.06, 0, 1))
+                          * smoothstep(clamp((P_LABELS_OUT - progress)          / 0.06, 0, 1));
+  const scrollHint    = clamp(1 - progress * 12, 0, 1);
 
   return (
     <section
@@ -146,30 +140,108 @@ export default function ScrollVideoExperience() {
       style={{ height: `${SECTION_VH}vh` }}
       aria-label="Camera showcase"
     >
-      <div
-        ref={stickyRef}
-        className="sticky top-0 h-screen w-full overflow-hidden"
-        style={{ background: VIDEO_BG }}
-      >
-        {/* Progress bar — TOP */}
-        <div className="absolute top-0 left-0 z-30 h-0.5 w-full bg-white/5">
-          <div
-            className="h-full bg-gradient-to-r from-accent to-cyber transition-none"
-            style={{ width: `${progress * 100}%` }}
-          />
+      <div className="sticky top-0 h-screen w-full overflow-hidden" style={{ background: VIDEO_BG }}>
+
+        {/* Progress bar — top */}
+        <div className="absolute top-0 left-0 z-40 h-0.5 w-full bg-white/5">
+          <div className="h-full bg-gradient-to-r from-accent to-cyber" style={{ width: `${progress * 100}%` }} />
         </div>
 
-        {/* Video */}
+        {/* Video (fades out during label phase) */}
         <video
           ref={videoRef}
           src={VIDEO_SRC}
           className="absolute inset-0 h-full w-full"
-          style={{ objectFit: 'contain', background: VIDEO_BG }}
+          style={{ objectFit: 'contain', background: VIDEO_BG, opacity: videoOpacity }}
           playsInline muted preload="auto"
           onLoadedMetadata={handleLoaded}
           onCanPlay={handleLoaded}
           onError={handleError}
         />
+
+        {/* Label phase: front-facing PNG + HUD overlay */}
+        {labelsOpacity > 0.005 && (
+          <div
+            className="pointer-events-none absolute inset-0 z-20"
+            style={{ opacity: labelsOpacity }}
+          >
+            {/* Camera image — front facing, transparent background */}
+            <img
+              src={LABEL_IMG}
+              alt="Camera — front view"
+              className="absolute object-contain"
+              style={{
+                width:  `${IMG_VW}vw`,
+                height: `${IMG_VH}vh`,
+                left:   `${IMG_VX}%`,
+                top:    `${IMG_VY}%`,
+                filter: 'drop-shadow(0 0 40px rgba(212,255,63,0.10))',
+              }}
+            />
+
+            {/* SVG lines + dots */}
+            <svg
+              className="absolute inset-0"
+              width="100%" height="100%"
+              style={{ overflow: 'visible' }}
+            >
+              {LABELS.map((s) => {
+                const { vx, vy } = dotVP(s.dotX, s.dotY);
+                const lineEndX = s.side === 'left' ? LINE_END_LEFT : LINE_END_RIGHT;
+                const ty       = s.textY;
+                return (
+                  <g key={s.n}>
+                    {/* line from dot → text column */}
+                    <line
+                      x1={`${vx}%`} y1={`${vy}%`}
+                      x2={`${lineEndX}%`} y2={`${ty}%`}
+                      stroke="rgba(212,255,63,0.35)"
+                      strokeWidth="0.8"
+                    />
+                    {/* dot on camera button */}
+                    <circle cx={`${vx}%`} cy={`${vy}%`} r="3.5" fill="#d4ff3f" />
+                    <circle cx={`${vx}%`} cy={`${vy}%`} r="6" fill="none" stroke="rgba(212,255,63,0.3)" strokeWidth="1" />
+                  </g>
+                );
+              })}
+            </svg>
+
+            {/* Text labels — outside camera body, no background */}
+            {LABELS.map((s) => (
+              <div
+                key={s.n}
+                className="absolute flex items-baseline gap-1.5"
+                style={{
+                  top:       `${s.textY}%`,
+                  transform: 'translateY(-50%)',
+                  ...(s.side === 'left'
+                    ? { left: `${TEXT_LEFT_X}%`, right: `${100 - LINE_END_LEFT + 1}%`, justifyContent: 'flex-end' }
+                    : { left: `${LINE_END_RIGHT + 1}%`, right: `${100 - TEXT_RIGHT_X}%`, justifyContent: 'flex-start' }),
+                }}
+              >
+                <span
+                  className="font-display font-semibold"
+                  style={{ fontSize: '9px', letterSpacing: '0.3em', color: '#d4ff3f', opacity: 0.8 }}
+                >
+                  {s.n}
+                </span>
+                <span
+                  className="font-display whitespace-nowrap"
+                  style={{ fontSize: '11px', color: 'rgba(255,255,255,0.85)' }}
+                >
+                  {s.label}
+                </span>
+              </div>
+            ))}
+
+            {/* Component count */}
+            <div className="absolute top-16 left-1/2 -translate-x-1/2">
+              <span className="font-display text-[9px] tracking-[0.4em] text-accent/50">
+                KEY COMPONENTS
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Nav bar */}
         <div className="absolute inset-x-0 top-1 z-30 flex items-center justify-between px-6 py-5 sm:px-10">
@@ -211,62 +283,10 @@ export default function ScrollVideoExperience() {
           </p>
         </div>
 
-        {/* HUD Labels */}
-        {rect.width > 0 && labelsOpacity > 0.01 && (
-          <div
-            className="pointer-events-none absolute inset-0 z-20"
-            style={{ opacity: labelsOpacity }}
-          >
-            {HUD_SPECS.map((s) => {
-              const px = rect.left + (parseFloat(s.x) / 100) * rect.width;
-              const py = rect.top  + (parseFloat(s.y) / 100) * rect.height;
-              return (
-                <div
-                  key={s.n}
-                  className="absolute flex items-center gap-2"
-                  style={{
-                    left: px,
-                    top: py,
-                    transform: `translate(${s.side === 'right' ? '-100%' : '0'}, -50%)`,
-                  }}
-                >
-                  {s.side === 'right' && (
-                    <>
-                      <span className="glass whitespace-nowrap rounded-lg px-3 py-2 shadow-glass">
-                        <span className="mr-2 font-display text-[9px] tracking-[0.3em] text-accent">{s.n}</span>
-                        <span className="font-display text-[11px] font-medium text-white/90 sm:text-xs">{s.label}</span>
-                      </span>
-                      <div className="h-px w-8 bg-gradient-to-r from-accent/60 to-transparent" />
-                    </>
-                  )}
-                  <div className="relative shrink-0">
-                    <div className="absolute -inset-1.5 rounded-full border border-accent/30 animate-pulseRing" />
-                    <div className="h-2 w-2 rounded-full bg-accent shadow-glow" />
-                  </div>
-                  {s.side === 'left' && (
-                    <>
-                      <div className="h-px w-8 bg-gradient-to-l from-accent/60 to-transparent" />
-                      <span className="glass whitespace-nowrap rounded-lg px-3 py-2 shadow-glass">
-                        <span className="mr-2 font-display text-[9px] tracking-[0.3em] text-accent">{s.n}</span>
-                        <span className="font-display text-[11px] font-medium text-white/90 sm:text-xs">{s.label}</span>
-                      </span>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-            <div className="absolute top-20 left-1/2 -translate-x-1/2 text-center">
-              <span className="font-display text-[9px] tracking-[0.4em] text-accent/60">
-                25 PRECISION COMPONENTS
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* Scroll indicator */}
         <div
           className="pointer-events-none absolute inset-x-0 bottom-8 z-30 flex flex-col items-center gap-2"
-          style={{ opacity: scrollHintOpacity }}
+          style={{ opacity: scrollHint }}
         >
           <span className="font-display text-[10px] tracking-[0.4em] text-white/35">SCROLL TO EXPLORE</span>
           <div className="grid h-9 w-6 place-items-start justify-center rounded-full border border-white/20 pt-1.5">
