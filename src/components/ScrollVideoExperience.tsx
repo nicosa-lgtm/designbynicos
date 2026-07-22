@@ -1,84 +1,124 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const VIDEO_SRC  = '/kamera-hero.mp4';
-const LABEL_IMG  = '/image-removebg-preview.png';
-export const VIDEO_BG = '#000000';
+export const VIDEO_BG  = '#000000';
+const VIDEO_SRC        = '/kamera-hero.mp4';
+export const CAMERA_PNG = '/image-removebg-preview.png';
 
-const VIDEO_DURATION = 10;
-const T_PAUSE        = 3.5;
+// ── Scroll phases ──────────────────────────────────────────────────────────
+const P_HERO_END     = 0.05; // hero text fades
+const P_PLAY1_END    = 0.33; // video plays 0 → T_CAM  (3/4-angle view)
+const P_LABELS1_OUT  = 0.52; // exterior labels shown, then fade
+const P_PLAY2_END    = 0.70; // video plays T_CAM → T_EXPLODE
+const P_LABELS2_OUT  = 0.84; // internals labels shown, then fade
+const P_PLAY3_END    = 0.90; // video plays T_EXPLODE → end
+const P_PNG_IN       = 0.93; // video out, PNG fades in
+// 0.93-1.00: PNG visible, drifts downward slightly (entering next section)
 
-// Scroll phases
-const P_HERO_END   = 0.06;
-const P_PLAY_END   = 0.42;
-const P_LABELS_OUT = 0.70;
-const P_PLAY2_END  = 0.95;
+export const SECTION_VH = 680;
 
-export const SECTION_VH = 500;
+const T_CAM     = 3.2;   // seconds: 3/4-angle pause frame
+const T_EXPLODE = 7.0;   // seconds: exploded-view pause frame
 
-// ─── Front-facing camera label map ───────────────────────────────────────────
-// dotX/dotY: position on the camera image (% of image bounding box)
-// textY:     explicit vertical position for the label text (% of viewport)
-//            to prevent overlap between labels on the same side
-// ─────────────────────────────────────────────────────────────────────────────
-
-// The camera image is displayed at ~48vw wide, centered.
-// On a 16:9 viewport the image occupies roughly:
-//   x: 26% – 74% of viewport width
-//   y: 12% – 86% of viewport height  (assuming ~1.1:1 aspect ratio image)
-
-const IMG_VX = 26;   // image left edge % of viewport w
-const IMG_VW = 48;   // image width     % of viewport w
-const IMG_VY = 12;   // image top edge  % of viewport h
-const IMG_VH = 74;   // image height    % of viewport h
-
-interface LabelSpec {
+// ── HUD label types ─────────────────────────────────────────────────────────
+// All coordinates are % of VIEWPORT (video is full-screen, no image-rect math).
+interface HudLabel {
   n: string;
   label: string;
-  dotX: number;   // % of image width
-  dotY: number;   // % of image height
-  textY: number;  // % of viewport height — explicit to avoid stacking
+  dotX: number;  // % of viewport width  — where dot sits ON the video frame
+  dotY: number;  // % of viewport height
+  lineX: number; // % — x where line terminates (edge of text column)
+  textY: number; // % — explicit y for text div to prevent stacking
   side: 'left' | 'right';
 }
 
-// 12 labels: 6 per side, well spread vertically, text placed outside camera body
-const LABELS: LabelSpec[] = [
-  // ── LEFT side (text anchored at left edge of screen) ──
-  { n:'01', label:'Mode Dial',        dotX:22, dotY:21, textY:22, side:'left'  },
-  { n:'02', label:'Top LCD Display',  dotX:35, dotY:13, textY:13, side:'left'  },
-  { n:'03', label:'Lens Release',     dotX:38, dotY:46, textY:43, side:'left'  },
-  { n:'04', label:'Focus Ring',       dotX:21, dotY:57, textY:55, side:'left'  },
-  { n:'05', label:'Lens',             dotX:30, dotY:67, textY:66, side:'left'  },
-  { n:'06', label:'Filter Thread',    dotX:25, dotY:78, textY:78, side:'left'  },
-  // ── RIGHT side (text anchored at right edge of screen) ──
-  { n:'07', label:'Hot Shoe Mount',   dotX:54, dotY: 7, textY: 8, side:'right' },
-  { n:'08', label:'Shutter Button',   dotX:76, dotY:24, textY:21, side:'right' },
-  { n:'09', label:'Exp. Comp. Dial',  dotX:82, dotY:17, textY:14, side:'right' },
-  { n:'10', label:'Grip',             dotX:87, dotY:55, textY:55, side:'right' },
-  { n:'11', label:'USB-C Port',       dotX:85, dotY:48, textY:45, side:'right' },
-  { n:'12', label:'Battery Door',     dotX:67, dotY:84, textY:80, side:'right' },
+// ── Phase 1 labels: 3/4-angle camera (T_CAM frame) ─────────────────────────
+// Video frame at ~3.2s shows camera in 3/4-left view filling ~35-83% x, 20-76% y.
+const CAM_LABELS: HudLabel[] = [
+  // LEFT – text column 0-21%, line ends at 22%
+  { n:'01', label:'Mode Dial',        dotX:38, dotY:23, lineX:22, textY:20, side:'left'  },
+  { n:'02', label:'Top LCD Display',  dotX:44, dotY:18, lineX:22, textY:13, side:'left'  },
+  { n:'03', label:'Lens Release',     dotX:39, dotY:44, lineX:22, textY:41, side:'left'  },
+  { n:'04', label:'Focus Ring',       dotX:35, dotY:54, lineX:22, textY:54, side:'left'  },
+  { n:'05', label:'Zoom Ring',        dotX:35, dotY:60, lineX:22, textY:63, side:'left'  },
+  { n:'06', label:'Lens',             dotX:38, dotY:67, lineX:22, textY:71, side:'left'  },
+  // RIGHT – text column 78-100%, line ends at 78%
+  { n:'07', label:'Hot Shoe Mount',   dotX:57, dotY:18, lineX:78, textY:13, side:'right' },
+  { n:'08', label:'Shutter Button',   dotX:70, dotY:24, lineX:78, textY:22, side:'right' },
+  { n:'09', label:'Rear Command Dial',dotX:78, dotY:33, lineX:78, textY:33, side:'right' },
+  { n:'10', label:'USB-C / HDMI',     dotX:83, dotY:50, lineX:78, textY:46, side:'right' },
+  { n:'11', label:'Grip',             dotX:81, dotY:57, lineX:78, textY:56, side:'right' },
+  { n:'12', label:'Memory Card Slot', dotX:79, dotY:62, lineX:78, textY:63, side:'right' },
 ];
 
-// Convert label dot coords (% of image) → % of viewport
-function dotVP(dotX: number, dotY: number) {
-  return {
-    vx: IMG_VX + (dotX / 100) * IMG_VW,
-    vy: IMG_VY + (dotY / 100) * IMG_VH,
-  };
-}
-
-// Text anchor positions in viewport %
-const TEXT_LEFT_X  = 1;   // left labels: text right edge at ~22% (leaves 21% for text)
-const TEXT_RIGHT_X = 99;  // right labels: text left edge at ~78%
-const LINE_END_LEFT  = 23; // where line ends on left side (just before text column)
-const LINE_END_RIGHT = 77; // where line ends on right side
+// ── Phase 2 labels: exploded/internals (T_EXPLODE frame) ────────────────────
+// Video at ~7s shows full camera explosion filling 5-95% of frame.
+const EXPLODE_LABELS: HudLabel[] = [
+  // LEFT – lens/optics on the left side of the explosion
+  { n:'I1', label:'Full Lens Assembly',    dotX:14, dotY:42, lineX:22, textY:37, side:'left'  },
+  { n:'I2', label:'Optical Elements',      dotX:22, dotY:44, lineX:22, textY:50, side:'left'  },
+  { n:'I3', label:'Zoom Barrel',           dotX:29, dotY:37, lineX:22, textY:30, side:'left'  },
+  { n:'I4', label:'Viewfinder (EVF)',      dotX:57, dotY: 8, lineX:22, textY:10, side:'left'  },
+  // RIGHT – sensor, board, ports, battery
+  { n:'I5', label:'Image Sensor (CMOS)',   dotX:52, dotY:40, lineX:78, textY:33, side:'right' },
+  { n:'I6', label:'Main Processor PCB',   dotX:65, dotY:43, lineX:78, textY:42, side:'right' },
+  { n:'I7', label:'I/O Port Module',       dotX:81, dotY:49, lineX:78, textY:52, side:'right' },
+  { n:'I8', label:'Battery Module',        dotX:73, dotY:62, lineX:78, textY:62, side:'right' },
+];
 
 function clamp(v: number, lo: number, hi: number) { return Math.min(hi, Math.max(lo, v)); }
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 function smoothstep(t: number) { const c = clamp(t, 0, 1); return c * c * (3 - 2 * c); }
 
+function HudOverlay({ labels, opacity }: { labels: HudLabel[]; opacity: number }) {
+  if (opacity < 0.005) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20" style={{ opacity }}>
+      {/* SVG lines + dots */}
+      <svg className="absolute inset-0" width="100%" height="100%">
+        {labels.map((s) => (
+          <g key={s.n}>
+            <line
+              x1={`${s.dotX}%`} y1={`${s.dotY}%`}
+              x2={`${s.lineX}%`} y2={`${s.textY}%`}
+              stroke="rgba(212,255,63,0.38)"
+              strokeWidth="0.8"
+            />
+            <circle cx={`${s.dotX}%`} cy={`${s.dotY}%`} r="3.5" fill="#d4ff3f" />
+            <circle cx={`${s.dotX}%`} cy={`${s.dotY}%`} r="6.5" fill="none"
+              stroke="rgba(212,255,63,0.28)" strokeWidth="1" />
+          </g>
+        ))}
+      </svg>
+      {/* Text labels — no background */}
+      {labels.map((s) => (
+        <div
+          key={s.n}
+          className="absolute flex items-baseline gap-1.5"
+          style={{
+            top:       `${s.textY}%`,
+            transform: 'translateY(-50%)',
+            ...(s.side === 'left'
+              ? { left: '1%', right: `${100 - s.lineX + 1}%`, justifyContent: 'flex-end', textAlign: 'right' }
+              : { left: `${s.lineX + 1}%`, right: '1%', justifyContent: 'flex-start' }),
+          }}
+        >
+          <span style={{ fontSize: '9px', letterSpacing: '0.3em', color: '#d4ff3f',
+            opacity: 0.85, fontFamily: 'inherit', fontWeight: 600 }}>
+            {s.n}
+          </span>
+          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.88)',
+            whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+            {s.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ScrollVideoExperience() {
-  const videoRef    = useRef<HTMLVideoElement | null>(null);
-  const wrapperRef  = useRef<HTMLDivElement | null>(null);
+  const videoRef   = useRef<HTMLVideoElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [progress, setProgress]     = useState(0);
   const [videoReady, setVideoReady] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -89,22 +129,25 @@ export default function ScrollVideoExperience() {
     const update = () => {
       const wrapper = wrapperRef.current;
       const video   = videoRef.current;
-      if (!wrapper || !video) { rafRef.current = requestAnimationFrame(update); return; }
+      if (!wrapper) { rafRef.current = requestAnimationFrame(update); return; }
 
-      const box    = wrapper.getBoundingClientRect();
-      const total  = box.height - window.innerHeight;
-      const p      = total > 0 ? clamp(-box.top / total, 0, 1) : 0;
+      const box   = wrapper.getBoundingClientRect();
+      const total = box.height - window.innerHeight;
+      const p     = total > 0 ? clamp(-box.top / total, 0, 1) : 0;
       setProgress(p);
 
-      let target: number;
-      if      (p < P_HERO_END)   target = 0;
-      else if (p < P_PLAY_END)   target = lerp(0, T_PAUSE, (p - P_HERO_END) / (P_PLAY_END - P_HERO_END));
-      else if (p < P_LABELS_OUT) target = T_PAUSE;
-      else if (p < P_PLAY2_END)  target = lerp(T_PAUSE, VIDEO_DURATION - 0.05, (p - P_LABELS_OUT) / (P_PLAY2_END - P_LABELS_OUT));
-      else                       target = VIDEO_DURATION - 0.05;
+      if (video && video.readyState >= 1 && video.duration && !Number.isNaN(video.duration)) {
+        const dur = video.duration;
+        let target: number;
+        if      (p < P_HERO_END)    target = 0;
+        else if (p < P_PLAY1_END)   target = lerp(0,          T_CAM,     (p - P_HERO_END)    / (P_PLAY1_END   - P_HERO_END));
+        else if (p < P_LABELS1_OUT) target = T_CAM;
+        else if (p < P_PLAY2_END)   target = lerp(T_CAM,      T_EXPLODE, (p - P_LABELS1_OUT) / (P_PLAY2_END   - P_LABELS1_OUT));
+        else if (p < P_LABELS2_OUT) target = T_EXPLODE;
+        else if (p < P_PLAY3_END)   target = lerp(T_EXPLODE,  dur - 0.05,(p - P_LABELS2_OUT) / (P_PLAY3_END   - P_LABELS2_OUT));
+        else                        target = dur - 0.05;
 
-      if (video.readyState >= 1 && video.duration && !Number.isNaN(video.duration)) {
-        const t = clamp(target, 0, video.duration);
+        const t = clamp(target, 0, dur);
         if (Math.abs(video.currentTime - t) > 0.01 && performance.now() - lastSeekRef.current > 16) {
           lastSeekRef.current = performance.now();
           try { video.currentTime = t; } catch { /* seeking */ }
@@ -124,14 +167,22 @@ export default function ScrollVideoExperience() {
   }, []);
   const handleError = useCallback(() => setVideoError(true), []);
 
-  const introOpacity  = smoothstep(clamp(1 - progress / (P_HERO_END * 0.9), 0, 1));
-  const labelsIn      = smoothstep(clamp((progress - P_PLAY_END)   / 0.05, 0, 1));
-  const labelsOut     = smoothstep(clamp((P_LABELS_OUT - progress) / 0.05, 0, 1));
-  const labelsOpacity = Math.min(labelsIn, labelsOut);
-  // video fades out while label image fades in
-  const videoOpacity  = 1 - smoothstep(clamp((progress - (P_PLAY_END - 0.04)) / 0.06, 0, 1))
-                          * smoothstep(clamp((P_LABELS_OUT - progress)          / 0.06, 0, 1));
-  const scrollHint    = clamp(1 - progress * 12, 0, 1);
+  // Label opacities
+  const labels1In  = smoothstep(clamp((progress - P_PLAY1_END)    / 0.04, 0, 1));
+  const labels1Out = smoothstep(clamp((P_LABELS1_OUT - progress)  / 0.04, 0, 1));
+  const labels1Opacity = Math.min(labels1In, labels1Out);
+
+  const labels2In  = smoothstep(clamp((progress - P_PLAY2_END)    / 0.04, 0, 1));
+  const labels2Out = smoothstep(clamp((P_LABELS2_OUT - progress)  / 0.04, 0, 1));
+  const labels2Opacity = Math.min(labels2In, labels2Out);
+
+  // PNG fades in after video ends
+  const pngOpacity = smoothstep(clamp((progress - P_PNG_IN) / 0.05, 0, 1));
+  // slight downward drift so PNG appears to "fall" into next section
+  const pngDrift   = clamp((progress - P_PNG_IN) / (1 - P_PNG_IN), 0, 1) * 8; // vh
+
+  const introOpacity = smoothstep(clamp(1 - progress / (P_HERO_END * 0.85), 0, 1));
+  const scrollHint   = clamp(1 - progress * 14, 0, 1);
 
   return (
     <section
@@ -144,102 +195,45 @@ export default function ScrollVideoExperience() {
 
         {/* Progress bar — top */}
         <div className="absolute top-0 left-0 z-40 h-0.5 w-full bg-white/5">
-          <div className="h-full bg-gradient-to-r from-accent to-cyber" style={{ width: `${progress * 100}%` }} />
+          <div className="h-full bg-gradient-to-r from-accent to-cyber"
+            style={{ width: `${progress * 100}%` }} />
         </div>
 
-        {/* Video (fades out during label phase) */}
+        {/* Full video — always visible, never replaced during scroll */}
         <video
           ref={videoRef}
           src={VIDEO_SRC}
           className="absolute inset-0 h-full w-full"
-          style={{ objectFit: 'contain', background: VIDEO_BG, opacity: videoOpacity }}
+          style={{ objectFit: 'contain', background: VIDEO_BG }}
           playsInline muted preload="auto"
           onLoadedMetadata={handleLoaded}
           onCanPlay={handleLoaded}
           onError={handleError}
         />
 
-        {/* Label phase: front-facing PNG + HUD overlay */}
-        {labelsOpacity > 0.005 && (
+        {/* Phase 1 HUD — 3/4 camera exterior labels */}
+        <HudOverlay labels={CAM_LABELS} opacity={labels1Opacity} />
+
+        {/* Phase 2 HUD — exploded internals labels */}
+        <HudOverlay labels={EXPLODE_LABELS} opacity={labels2Opacity} />
+
+        {/* PNG camera — fades in at the very end, drifts down into S2 */}
+        {pngOpacity > 0.005 && (
           <div
-            className="pointer-events-none absolute inset-0 z-20"
-            style={{ opacity: labelsOpacity }}
+            className="pointer-events-none absolute inset-0 z-25 flex items-center justify-center"
+            style={{ opacity: pngOpacity }}
           >
-            {/* Camera image — front facing, transparent background */}
             <img
-              src={LABEL_IMG}
-              alt="Camera — front view"
-              className="absolute object-contain"
+              src={CAMERA_PNG}
+              alt="Aura Cine Series X"
               style={{
-                width:  `${IMG_VW}vw`,
-                height: `${IMG_VH}vh`,
-                left:   `${IMG_VX}%`,
-                top:    `${IMG_VY}%`,
-                filter: 'drop-shadow(0 0 40px rgba(212,255,63,0.10))',
+                width: '52vw',
+                maxWidth: '580px',
+                transform: `translateY(${pngDrift}vh)`,
+                filter: 'drop-shadow(0 20px 60px rgba(212,255,63,0.12))',
+                transition: 'none',
               }}
             />
-
-            {/* SVG lines + dots */}
-            <svg
-              className="absolute inset-0"
-              width="100%" height="100%"
-              style={{ overflow: 'visible' }}
-            >
-              {LABELS.map((s) => {
-                const { vx, vy } = dotVP(s.dotX, s.dotY);
-                const lineEndX = s.side === 'left' ? LINE_END_LEFT : LINE_END_RIGHT;
-                const ty       = s.textY;
-                return (
-                  <g key={s.n}>
-                    {/* line from dot → text column */}
-                    <line
-                      x1={`${vx}%`} y1={`${vy}%`}
-                      x2={`${lineEndX}%`} y2={`${ty}%`}
-                      stroke="rgba(212,255,63,0.35)"
-                      strokeWidth="0.8"
-                    />
-                    {/* dot on camera button */}
-                    <circle cx={`${vx}%`} cy={`${vy}%`} r="3.5" fill="#d4ff3f" />
-                    <circle cx={`${vx}%`} cy={`${vy}%`} r="6" fill="none" stroke="rgba(212,255,63,0.3)" strokeWidth="1" />
-                  </g>
-                );
-              })}
-            </svg>
-
-            {/* Text labels — outside camera body, no background */}
-            {LABELS.map((s) => (
-              <div
-                key={s.n}
-                className="absolute flex items-baseline gap-1.5"
-                style={{
-                  top:       `${s.textY}%`,
-                  transform: 'translateY(-50%)',
-                  ...(s.side === 'left'
-                    ? { left: `${TEXT_LEFT_X}%`, right: `${100 - LINE_END_LEFT + 1}%`, justifyContent: 'flex-end' }
-                    : { left: `${LINE_END_RIGHT + 1}%`, right: `${100 - TEXT_RIGHT_X}%`, justifyContent: 'flex-start' }),
-                }}
-              >
-                <span
-                  className="font-display font-semibold"
-                  style={{ fontSize: '9px', letterSpacing: '0.3em', color: '#d4ff3f', opacity: 0.8 }}
-                >
-                  {s.n}
-                </span>
-                <span
-                  className="font-display whitespace-nowrap"
-                  style={{ fontSize: '11px', color: 'rgba(255,255,255,0.85)' }}
-                >
-                  {s.label}
-                </span>
-              </div>
-            ))}
-
-            {/* Component count */}
-            <div className="absolute top-16 left-1/2 -translate-x-1/2">
-              <span className="font-display text-[9px] tracking-[0.4em] text-accent/50">
-                KEY COMPONENTS
-              </span>
-            </div>
           </div>
         )}
 

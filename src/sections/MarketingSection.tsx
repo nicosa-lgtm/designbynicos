@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-
-const CAMERA_IMG = '/image-removebg-preview.png';
+import { CAMERA_PNG } from '../components/ScrollVideoExperience';
 
 interface CopyData {
   eyebrow: string;
@@ -88,22 +87,13 @@ export default function MarketingSection() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Two "snap" positions:
-  // progress 0.0 → camera at center of row 1 (top half)
-  // progress 0.5 → midpoint (camera animates)
-  // progress 1.0 → camera at center of row 2 (bottom half)
-  // We use a smooth eased transition between the two rows
-
-  // translateY of camera image inside sticky container:
-  // row 1 center = 50% of viewport → translateY 0
-  // row 2 center = 50% of viewport → translateY 0 (it's always at 50vh)
-  // Both rows are already at 50vh because the copy rows are each ~100vh tall,
-  // and the camera is sticky at top:0 with centering — camera just STAYS at 50vh.
-  // The scroll naturally moves row 1 out of view and row 2 into view alongside the static camera.
-
-  // However we want to add a subtle vertical drift so the camera visually shifts between rows:
-  const drift  = (progress - 0.5) * 18; // px, small shift
-  const glow   = progress > 0.9 ? 1 - (progress - 0.9) / 0.1 : 1;
+  // Camera PNG enters from top (S1 handoff) and settles at center of row 1.
+  // It STAYS at row 1 — does NOT drift to row 2.
+  // Enter: translateY from -30vh (above) → 0 (center) during progress 0 → 0.15
+  const enter   = smoothstep(clamp(progress / 0.15, 0, 1));
+  const camY    = lerp(-30, 0, enter);  // vh
+  const camOp   = enter;                // fade in
+  const glowOp  = enter * (progress > 0.85 ? 1 - (progress - 0.85) / 0.15 : 1);
 
   return (
     <section
@@ -120,61 +110,52 @@ export default function MarketingSection() {
           className="absolute left-1/2 top-1/2 rounded-full blur-[80px]"
           style={{
             width: '40vw', height: '40vw',
-            transform: `translate(-50%, calc(-50% + ${drift}px))`,
+            transform: `translate(-50%, calc(-50% + ${camY}vh))`,
             background: 'radial-gradient(circle, rgba(212,255,63,0.06) 0%, transparent 70%)',
-            opacity: glow,
+            opacity: glowOp,
           }}
         />
       </div>
 
-      {/* Camera image — sticky, always at vertical center */}
+      {/* Camera PNG — sticky, enters from top, settles at row 1 center, stays there */}
       <div
         className="sticky top-0 pointer-events-none z-10"
         style={{ height: '100vh', marginBottom: '-100vh' }}
       >
         <img
-          src={CAMERA_IMG}
+          src={CAMERA_PNG}
           alt="Aura Cine Series X"
           className="absolute left-1/2"
           style={{
             width: '44vw',
             maxWidth: '520px',
             top: '50%',
-            transform: `translateX(-50%) translateY(calc(-50% + ${drift}px))`,
+            transform: `translateX(-50%) translateY(calc(-50% + ${camY}vh))`,
+            opacity: camOp,
             filter: 'drop-shadow(0 20px 60px rgba(212,255,63,0.08))',
-            transition: 'transform 0.3s cubic-bezier(0.25,0.46,0.45,0.94)',
+            transition: 'none',
           }}
         />
       </div>
 
-      {/* Row 1 copy — flanks camera at top of section */}
+      {/* Row 1 copy — flanks camera */}
       <div
         className="relative z-20 grid w-full items-center"
-        style={{
-          height: '100vh',
-          gridTemplateColumns: '1fr 46vw 1fr',
-          padding: '0 4vw',
-          display: 'grid',
-        }}
+        style={{ height: '100vh', gridTemplateColumns: '1fr 46vw 1fr', padding: '0 4vw' }}
       >
         <div className="flex items-center justify-start pr-6 lg:pr-10">
           <CopyBlock {...ROW1_LEFT} align="left" />
         </div>
-        <div /> {/* camera column — empty, camera is in sticky layer above */}
+        <div />
         <div className="flex items-center justify-end pl-6 lg:pl-10">
           <CopyBlock {...ROW1_RIGHT} align="right" />
         </div>
       </div>
 
-      {/* Row 2 copy — flanks camera at bottom of section */}
+      {/* Row 2 copy — camera is NOT here (stays at row 1) */}
       <div
         className="relative z-20 grid w-full items-center"
-        style={{
-          height: '100vh',
-          gridTemplateColumns: '1fr 46vw 1fr',
-          padding: '0 4vw',
-          display: 'grid',
-        }}
+        style={{ height: '100vh', gridTemplateColumns: '1fr 46vw 1fr', padding: '0 4vw' }}
       >
         <div className="flex items-center justify-start pr-6 lg:pr-10">
           <CopyBlock {...ROW2_LEFT} align="left" />
@@ -189,3 +170,7 @@ export default function MarketingSection() {
     </section>
   );
 }
+
+function clamp(v: number, lo: number, hi: number) { return Math.min(hi, Math.max(lo, v)); }
+function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function smoothstep(t: number) { const c = clamp(t, 0, 1); return c * c * (3 - 2 * c); }
